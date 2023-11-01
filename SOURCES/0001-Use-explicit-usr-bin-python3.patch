@@ -1,0 +1,55 @@
+From 17162396d9ace9396c27826f1c62719186e29ae9 Mon Sep 17 00:00:00 2001
+From: =?UTF-8?q?Pavel=20Filipensk=C3=BD?= <pfilipensky@samba.org>
+Date: Fri, 20 Jan 2023 20:53:44 +0100
+Subject: [PATCH] Use explicit #!/usr/bin/python3
+
+---
+ checkopts    | 2 +-
+ smb2-quota   | 2 +-
+ smb2-secdesc | 2 +-
+ smbinfo      | 2 +-
+ 4 files changed, 4 insertions(+), 4 deletions(-)
+
+diff --git a/checkopts b/checkopts
+index 88e70b1..00c4cfd 100755
+--- a/checkopts
++++ b/checkopts
+@@ -1,4 +1,4 @@
+-#!/usr/bin/env python3
++#!/usr/bin/python3
+ #
+ # Script to check for inconsistencies between documented mount options
+ # and implemented kernel options.
+diff --git a/smb2-quota b/smb2-quota
+index 6d0b8a3..49207c7 100755
+--- a/smb2-quota
++++ b/smb2-quota
+@@ -1,4 +1,4 @@
+-#!/usr/bin/env python
++#!/usr/bin/python3
+ # coding: utf-8
+ #
+ # smb2-quota is a cmdline tool to display quota information for the
+diff --git a/smb2-secdesc b/smb2-secdesc
+index 5886091..534dd92 100755
+--- a/smb2-secdesc
++++ b/smb2-secdesc
+@@ -1,4 +1,4 @@
+-#!/usr/bin/env python
++#!/usr/bin/python3
+ # coding: utf-8
+ 
+ import array
+diff --git a/smbinfo b/smbinfo
+index 73c5bb3..766024e 100755
+--- a/smbinfo
++++ b/smbinfo
+@@ -1,4 +1,4 @@
+-#!/usr/bin/env python3
++#!/usr/bin/python3
+ # -*- coding: utf-8 -*-
+ #
+ # smbinfo is a cmdline tool to query SMB-specific file and fs
+-- 
+2.38.1
+
