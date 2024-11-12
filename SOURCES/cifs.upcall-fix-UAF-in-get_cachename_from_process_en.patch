@@ -1,0 +1,46 @@
+From 73146385da0945c78af0fbdc08d2bf260db709d5 Mon Sep 17 00:00:00 2001
+From: Paulo Alcantara <pc@manguebit.com>
+Date: Fri, 8 Mar 2024 12:06:15 -0300
+Subject: [PATCH] cifs.upcall: fix UAF in get_cachename_from_process_env()
+
+Whether lseek(2) fails or @bufsize * 2 > ENV_BUF_MAX, then @buf would
+end up being freed twice.  For instance:
+
+  cifs-utils-7.0/cifs.upcall.c:501: freed_arg: "free" frees "buf".
+  cifs-utils-7.0/cifs.upcall.c:524: double_free: Calling "free" frees
+  pointer "buf" which has already been freed.
+    522|           }
+    523|   out_close:
+    524|->         free(buf);
+    525|           close(fd);
+    526|           return cachename;
+
+Fix this by setting @buf to NULL after freeing it to prevent UAF.
+
+Fixes: ed97e4ecab4e ("cifs.upcall: allow scraping of KRB5CCNAME out of initiating task's /proc/<pid>/environ file")
+Signed-off-by: Paulo Alcantara (Red Hat) <pc@manguebit.com>
+---
+ cifs.upcall.c | 5 +++--
+ 1 file changed, 3 insertions(+), 2 deletions(-)
+
+diff --git a/cifs.upcall.c b/cifs.upcall.c
+index 52c03280dbe0..ff6f2bd271bc 100644
+--- a/cifs.upcall.c
++++ b/cifs.upcall.c
+@@ -498,10 +498,11 @@ retry:
+ 		/* We read to the end of the buffer. Double and try again */
+ 		syslog(LOG_DEBUG, "%s: read to end of buffer (%zu bytes)\n",
+ 					__func__, bufsize);
+-		free(buf);
+-		bufsize *= 2;
+ 		if (lseek(fd, 0, SEEK_SET) < 0)
+ 			goto out_close;
++		free(buf);
++		buf = NULL;
++		bufsize *= 2;
+ 		goto retry;
+ 	}
+ 
+-- 
+2.44.0
+

@@ -3,7 +3,7 @@
 
 Name:            cifs-utils
 Version:         7.0
-Release:         1%{pre_release}%{?dist}
+Release:         5%{pre_release}%{?dist}
 Summary:         Utilities for mounting and managing CIFS mounts
 
 License:         GPLv3
@@ -21,6 +21,11 @@ Requires(preun): /usr/sbin/alternatives
 Recommends: %{name}-info%{?_isa} = %{version}-%{release}
 
 Source0:         https://download.samba.org/pub/linux-cifs/cifs-utils/%{name}-%{version}.tar.bz2
+Patch0:          cifs.upcall-fix-UAF-in-get_cachename_from_process_en.patch
+Patch1:          pam_cifscreds-fix-warning-on-NULL-arg-passed-to-s-in.patch
+Patch2:          mount.cifs.rst-add-missing-reference-for-sssd.patch
+Patch3:          mount.cifs.rst-update-section-about-xattr-acl-suppor.patch
+Patch4:          Implement-CLDAP-Ping-to-find-the-closest-site.patch
 
 %description
 The SMB/CIFS protocol is a standard file sharing protocol widely deployed
@@ -53,6 +58,11 @@ provide these credentials to the kernel automatically at login.
 
 %prep
 %setup -q -n %{name}-%{version}%{pre_release}
+%patch0 -p1
+%patch1 -p1
+%patch2 -p1
+%patch3 -p1
+%patch4 -p1
 
 %build
 fgrep -r -l '/usr/bin/env python' | xargs -n1 sed -i 's@/usr/bin/env python.*@%python3@g'
@@ -124,6 +134,23 @@ about CIFS mount.
 %{_mandir}/man1/smbinfo.*
 
 %changelog
+* Mon Apr 22 2024 Paulo Alcantara <paalcant@redhat.com> - 7.0-5
+- Implement CLDAP Ping to find the closest site
+- Resolves: RHELPLAN-17597
+
+* Tue Apr 16 2024 Paulo Alcantara <paalcant@redhat.com> - 7.0-4
+- mount.cifs.rst: add missing reference for sssd
+- mount.cifs.rst: update section about xattr/acl support
+- Resolves: RHEL-22495
+
+* Fri Apr 12 2024 Paulo Alcantara <paalcant@redhat.com> - 7.0-3
+- pam_cifscreds: fix NULL arg warning passed to pam_syslog()
+- Resolves: RHEL-28050
+
+* Fri Apr 12 2024 Paulo Alcantara <paalcant@redhat.com> - 7.0-2
+- cifs.upcall: fix UAF in get_cachename_from_process_env()
+- Resolves: RHEL-28047
+
 * Mon Jan 30 2023 Pavel Filipenský <pfilipen@redhat.com> - 7.0-1
 - Update to cifs-utils-7.0
 - Resolves: rhbz#2163303
