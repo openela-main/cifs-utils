@@ -1,0 +1,47 @@
+From d69d2129c6476afbcbbe8dc6e2ed17f233084d85 Mon Sep 17 00:00:00 2001
+From: =?UTF-8?q?Pavel=20Filipensk=C3=BD?= <pfilipensky@samba.org>
+Date: Mon, 7 Oct 2024 21:48:31 +0200
+Subject: [PATCH] smbinfo: add bash completion support for filestreaminfo,
+ keys, gettconinfo
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+Signed-off-by: Pavel Filipenský <pfilipensky@samba.org>
+---
+ bash-completion/smbinfo | 9 ++++++---
+ 1 file changed, 6 insertions(+), 3 deletions(-)
+
+diff --git a/bash-completion/smbinfo b/bash-completion/smbinfo
+index d56b581..ec0d8a4 100644
+--- a/bash-completion/smbinfo
++++ b/bash-completion/smbinfo
+@@ -15,19 +15,22 @@ smb_info()
+ 	      filemodeinfo
+ 	      filepositioninfo
+ 	      filestandardinfo
++	      filestreaminfo
+ 	      fsctl-getobjid
+ 	      getcompression
+ 	      setcompression
+ 	      list-snapshots
+ 	      quota
+-	      secdesc"
++	      secdesc
++	      keys
++	      gettconinfo"
+ 	case $prev in
+ 		'-v'|'-h')
+ 			return 0
+ 			;;
+ 		'fileaccessinfo'|'filealigninfo'|'fileallinfo'|'filebasicinfo'|'fileeainfo'|'filefsfullsizeinfo'|\
+-		'fileinternalinfo'|'filemodeinfo'|'filepositioninfo'|'filestandardinfo'|'fsctl-getobjid'|\
+-		'getcompression'|'setcompression'|'list-snapshots'|'quota'|'secdesc')
++		'fileinternalinfo'|'filemodeinfo'|'filepositioninfo'|'filestandardinfo'|'filestreaminfo'|'fsctl-getobjid'|\
++		'getcompression'|'setcompression'|'list-snapshots'|'quota'|'secdesc'|'keys'|'gettconinfo')
+ 			local IFS=$'\n'
+ 			compopt -o filenames
+ 			COMPREPLY=( $(compgen -f -o dirnames -- ${cur:-""}) )
+-- 
+2.46.1
+
