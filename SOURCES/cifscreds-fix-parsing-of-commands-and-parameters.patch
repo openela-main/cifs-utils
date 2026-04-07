@@ -1,0 +1,82 @@
+From 828cb25224cd88b3599d5ca79a7c9435491896db Mon Sep 17 00:00:00 2001
+From: Paulo Alcantara <pc@manguebit.org>
+Date: Tue, 25 Nov 2025 16:30:27 -0300
+Subject: [PATCH 1/2] cifscreds: fix parsing of commands and parameters
+
+Fix the parsing of '--username' and '--timeout' options as both
+require an argument by fixing the value passed in @optstring when
+calling getopt_long(3).
+
+Also fix the matching of commands by breaking the loop when an exact
+match is found.  Otherwise `cifscreds clear ...` would return
+"Ambiguous command" due to "clearall" command.
+
+* Before patch
+
+$ ./cifscreds add -u testuser w22-root2.zelda.test
+error: Could not resolve address for testuser
+$ ./cifscreds add -u testuser -d ZELDA
+Password:
+$ grep 'cifs:[ad]' /proc/keys
+198de7a1 I--Q---     1 perm 0d0d0000     0     0 logon     cifs:d:testuser: 13
+                                                                  ^^ wrong desc
+$ ./cifscreds clear -u testuser w22-root2.zelda.test
+Ambiguous command
+$ ./cifscreds clear -u testuser -d ZELDA
+Ambiguous command
+
+* After patch
+
+$ ./cifscreds add -u testuser w22-root2.zelda.test
+Password:
+$ ./cifscreds add -u testuser -d ZELDA
+Password:
+$ grep 'cifs:[ad]' /proc/keys
+089183a9 I--Q---     1 perm 0d0d0000     0     0 logon     cifs:a:192.168.124.32: 17
+0ca5ed80 I--Q---     1 perm 0d0d0000     0     0 logon     cifs:d:ZELDA: 17
+$ ./cifscreds clear -u testuser w22-root2.zelda.test
+$ ./cifscreds clear -u testuser -d ZELDA
+
+Reported-by: Xiaoli Feng <xifeng@redhat.com>
+Reported-by: Jay Shin <jaeshin@redhat.com>
+Signed-off-by: Paulo Alcantara (Red Hat) <pc@manguebit.org>
+Cc: Steve French <smfrench@gmail.com>
+Cc: linux-cifs@vger.kernel.org
+---
+ cifscreds.c | 6 +++---
+ 1 file changed, 3 insertions(+), 3 deletions(-)
+
+diff --git a/cifscreds.c b/cifscreds.c
+index 295059f9683d..e8713be23d71 100644
+--- a/cifscreds.c
++++ b/cifscreds.c
+@@ -71,7 +71,7 @@ static struct command commands[] = {
+ static struct option longopts[] = {
+ 	{"username", 1, NULL, 'u'},
+ 	{"domain", 0, NULL, 'd' },
+-	{"timeout", 0, NULL, 't' },
++	{"timeout", 1, NULL, 't' },
+ 	{NULL, 0, NULL, 0}
+ };
+ 
+@@ -477,7 +477,7 @@ int main(int argc, char **argv)
+ 	if (argc == 1)
+ 		return usage();
+ 
+-	while((n = getopt_long(argc, argv, "dut:", longopts, NULL)) != -1) {
++	while((n = getopt_long(argc, argv, "du:t:", longopts, NULL)) != -1) {
+ 		switch (n) {
+ 		case 'd':
+ 			arg.keytype = (char) n;
+@@ -507,7 +507,7 @@ int main(int argc, char **argv)
+ 		if (cmd->name[n] == 0) {
+ 			/* exact match */
+ 			best = cmd;
+-			continue;
++			break;
+ 		}
+ 
+ 		/* partial match */
+-- 
+2.51.1
+
