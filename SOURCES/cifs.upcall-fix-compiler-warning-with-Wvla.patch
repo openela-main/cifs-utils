@@ -1,0 +1,46 @@
+From d2f39a20d68aa55023b63e575f06941721e644c6 Mon Sep 17 00:00:00 2001
+From: Paulo Alcantara <pc@manguebit.org>
+Date: Tue, 23 Jun 2026 15:06:20 -0300
+Subject: [PATCH] cifs.upcall: fix compiler warning with -Wvla
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+The length value for @path array in get_uidgid() needs to be evaluated
+at compile time, so replace strlen() with sizeof() when defining
+PROC_PID_PATH_MAXLEN and then fix the following warning:
+
+ cifs.upcall.c: In function ‘get_uidgid’:
+ cifs.upcall.c:1400:9: warning: ISO C90 forbids array ‘path’ whose size
+ cannot be evaluated [-Wvla]
+  1400 |         char path[PROC_PID_PATH_MAXLEN] = {}, buf[256];
+       |         ^~~~
+
+Fixes: 972c5b5ff95e ("cifs.upcall: remove getpwuid() dependency")
+Signed-off-by: Paulo Alcantara (Red Hat) <pc@manguebit.org>
+Reviewed-by: David Howells <dhowells@redhat.com>
+Cc: Enzo Matsumiya <ematsumiya@suse.de>
+Cc: linux-cifs@vger.kernel.org
+Signed-off-by: Steve French <stfrench@microsoft.com>
+---
+ cifs.upcall.c | 4 ++--
+ 1 file changed, 2 insertions(+), 2 deletions(-)
+
+diff --git a/cifs.upcall.c b/cifs.upcall.c
+index 01690dfcade1..11dbc6186a74 100644
+--- a/cifs.upcall.c
++++ b/cifs.upcall.c
+@@ -1375,8 +1375,8 @@ static int ip_to_fqdn(const char *addrstr, char *host, size_t hostlen)
+ 	return 0;
+ }
+ 
+-/* cover worst case/impossible scenarios, + 1 for NUL */
+-#define PROC_PID_PATH_MAXLEN	((int)strlen("/proc/2147483647/status") + 1)
++/* cover worst case/impossible scenarios */
++#define PROC_PID_PATH_MAXLEN	((int)sizeof("/proc/2147483647/status"))
+ /* max valid UID/GID is (UINT_MAX - 1) */
+ #define INVALID_UIDGID		UINT_MAX
+ 
+-- 
+2.54.0
+

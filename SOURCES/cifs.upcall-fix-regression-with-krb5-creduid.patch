@@ -1,0 +1,383 @@
+From e9495963e0d5c26f7d0137829d8dc625130b53cc Mon Sep 17 00:00:00 2001
+From: Enzo Matsumiya <ematsumiya@suse.de>
+Date: Mon, 6 Jul 2026 10:55:55 -0300
+Subject: [PATCH] cifs.upcall: fix regression with krb5 + creduid
+
+Commit 972c5b5ff95e ("cifs.upcall: remove getpwuid() dependency")
+introduced a regression when using creduid != uid (e.g.
+"mount.cifs -o sec=krb5,cruid=X"), so 'uid' local var is replaced
+with procfs "Uid" value (in the example, the one from mount.cifs).
+
+That commit ignored the fact that:
+  mount UID can be different from creds UID, and that calling-app
+  process (post-mount) can be different from both
+
+This patch "reverts" 972c5b5ff95e ("cifs.upcall: remove getpwuid()
+dependency"); transform the "emergency"-added function get_uidgid()
+into map_uidgid(), now only used to do NS UID/GID mapping.
+
+Also add getpwuid() back, but this time called while still on host
+namespace, so any possible custom NSS module is ran as allowed by
+sysadmin.
+
+Any scenario involving unmapped UIDs or GIDs is unsupported; this
+means that any UID:GID in a child user namespace _must_ map back to
+a valid and existing host UID:GID.
+
+Fixes: 972c5b5ff95e ("cifs.upcall: remove getpwuid() dependency")
+Reported-by: Paulo Alcantara (Red Hat) <pc@manguebit.org>
+Signed-off-by: Enzo Matsumiya <ematsumiya@suse.de>
+Signed-off-by: Paulo Alcantara (Red Hat) <pc@manguebit.org>
+Signed-off-by: Steve French <stfrench@microsoft.com>
+---
+ cifs.upcall.c | 279 ++++++++++++++++++++++++++++++++------------------
+ 1 file changed, 177 insertions(+), 102 deletions(-)
+
+Index: cifs-utils-7.0/cifs.upcall.c
+===================================================================
+--- cifs-utils-7.0.orig/cifs.upcall.c
++++ cifs-utils-7.0/cifs.upcall.c
+@@ -52,6 +52,7 @@
+ #include <arpa/inet.h>
+ #include <ctype.h>
+ #include <grp.h>
++#include <pwd.h>
+ #include <stdbool.h>
+ #include <errno.h>
+ #include <sched.h>
+@@ -1264,118 +1265,170 @@ static int ip_to_fqdn(const char *addrst
+ 	return 0;
+ }
+ 
+-/* cover worst case/impossible scenarios */
+-#define PROC_PID_PATH_MAXLEN	((int)sizeof("/proc/2147483647/status"))
+-/* max valid UID/GID is (UINT_MAX - 1) */
+-#define INVALID_UIDGID		UINT_MAX
++#define ID_MAP_PATH_MAX ((int)sizeof("/proc/2147483647/uid_map"))
+ 
+-/*
+- * get_uidgid - Get @pid's (real) UID and/or GID.
+- * @pid: process to get UID/GID from
+- * @uidp: pointer to store @pid's UID (can be NULL)
+- * @gidp: pointer to store @pid's GID (can be NULL)
+- *
+- * Extract "Uid:" and "Gid:" fields from /proc/@pid/status.
+- * Do so based on whether @uidp or @gidp are NULL.
+- *
+- * This function assumes we're on the same namespace as @pid.
+- *
+- * Return: 0 on success, -1 otherwise (errno set).
+- *
+- * On errors, *@uidp and *@gidp are set to INVALID_UIDGID.
+- */
+-static int get_uidgid(pid_t pid, uid_t *uidp, gid_t *gidp)
++static int map_id(pid_t pid, const char *map, unsigned int *idp)
+ {
+-	char path[PROC_PID_PATH_MAXLEN] = {}, buf[256];
++	unsigned long long ns_start, host_start, range;
++	char map_path[ID_MAP_PATH_MAX];
++	int map_path_size = sizeof(map_path);
++	unsigned int id;
+ 	FILE *fp = NULL;
+-	int ret;
++	int ret = 1;
+ 
+-	errno = 0;
+-	if (pid < 0 || (!uidp && !gidp)) {
+-		errno = EINVAL;
+-		return -1;
+-	}
+-
+-	if (uidp)
+-		*uidp = INVALID_UIDGID;
+-
+-	if (gidp)
+-		*gidp = INVALID_UIDGID;
++	errno = EINVAL;
++	if (pid < 0 || !map || !idp || *idp == UINT_MAX)
++		goto out;
+ 
+-	ret = snprintf(path, PROC_PID_PATH_MAXLEN, "/proc/%d/status", pid);
+-	if (ret < 0 || ret >= PROC_PID_PATH_MAXLEN) {
+-		if (!errno)
++	ret = snprintf(map_path, map_path_size, "/proc/%d/%s", pid, map);
++	if (ret < 0 || ret >= map_path_size) {
++		if (ret >= map_path_size)
+ 			errno = ENAMETOOLONG;
+-		return -1;
++		ret = 1;
++		goto out;
+ 	}
+ 
+-	fp = fopen(path, "r");
+-	if (!fp) {
+-		ret = -1;
++	ret = 1;
++	fp = fopen(map_path, "r");
++	if (!fp)
+ 		goto out;
+-	}
+ 
+-	/* Parse /proc/pid/status fields */
+-	errno = 0;
+-	ret = -1;
+-	while (fgets(buf, 256, fp)) {
+-		unsigned long long val;
++	/*
++	 * The map files have the same format:
++	 *   <NS ID start> <host ID start> <range>
++	 *   ... (<multiple entries are supported) ...
++	 *
++	 * Formula and validation:
++	 *   <final NS ID> = (*@idp - <host ID start>) + <NS ID start>
++	 *
++	 * - IDs: [0, UINT_MAX - 1]
++	 * - range: [1, UINT_MAX], where range == UINT_MAX requires both ID ranges to start at 0,
++	 *   which then means this is an init host NS mapping (and that's ok)
++	 *
++	 * The formula itself would be enough to "validate" a matching NS ID, but we don't want to
++	 * keep parsing a malformed map file, no matter how unlikely/impossible it is to happen.
++	 * Same reason values are parsed as 'unsigned long long', so we can check for bogus data.
++	 */
++	id = UINT_MAX;
++	errno = ENODATA;
++	while (fscanf(fp, "%llu %llu %llu", &ns_start, &host_start, &range) == 3) {
++		if (ns_start >= UINT_MAX || host_start >= UINT_MAX ||
++		    range > UINT_MAX || range == 0) {
++			errno = EINVAL;
++			ret = 1;
++			break;
++		}
+ 
+-		errno = ENODATA;
+-		if ((!uidp || strncmp(buf, "Uid:", 4)) && (!gidp || strncmp(buf, "Gid:", 4)))
+-			continue;
++		if (range == UINT_MAX && (ns_start != 0 || host_start != 0)) {
++			errno = EINVAL;
++			ret = 1;
++			break;
++		}
+ 
+-		errno = 0;
++		if (host_start + range > UINT_MAX || ns_start + range > UINT_MAX) {
++			errno = EINVAL;
++			ret = 1;
++			break;
++		}
+ 
+ 		/*
+-		 * Example line format (same for both Uid/Gid):
+-		 * "Uid:\t%u\t%u\%u\%u"
++		 * Check if host ID fits this line.
++		 * Our desired NS ID may be in any line of the file.
+ 		 *
+-		 * Where the numbers represents:
+-		 * <real> <effective> <saved> <fsuid>
++		 * Note: new{uid,gid}map tools (that creates the map files) don't allow multiple
++		 * maps (NS IDs) to the same host ID.
+ 		 *
+-		 * We're only interested in the <real> value.
++		 * If we get a match here, we'll save it, but we continue parsing the file.
++		 * If we happen to find a duplicate, it's possible this is a rogue file trying to
++		 * bypass these checks.
+ 		 *
+-		 * (field names "Uid:"/"Gid:" parsed above, skip it)
++		 * In such cases, discard the match and return EOPNOTSUPP, as returning a
++		 * successful match could lead to disastrous results.
+ 		 */
+-		ret = sscanf(&buf[0] + 4, "%llu", &val);
+-		if (ret != 1) {
+-			ret = -1;
+-			if (errno)
++		if (*idp >= host_start && *idp < host_start + range) {
++			/* This means we found a duplicate */
++			if (!ret) {
++				ret = 1;
++				errno = EOPNOTSUPP;
++				syslog(LOG_ERR, "%s has multiple mapped IDs for %u (unsupported)",
++				       map, *idp);
+ 				break;
+-			continue;
+-		}
+-
+-		ret = -1;
+-		if (val >= UINT_MAX) {
+-			errno = EINVAL;
+-			break;
+-		}
+-
+-		if (uidp && !strncmp(buf, "Uid:", 4))
+-			*uidp = (uid_t)val;
+-		else
+-			*gidp = (gid_t)val;
++			}
+ 
+-		if ((!uidp || *uidp != INVALID_UIDGID) && (!gidp || *gidp != INVALID_UIDGID)) {
+-			errno = 0;
++			id = (*idp - host_start) + ns_start;
+ 			ret = 0;
+-			break;
++			errno = 0;
+ 		}
+ 	}
++
++	/* This means errno was reset by fscanf() without finding anything */
++	if (ret && errno == 0)
++		errno = ENODATA;
+ out:
+-	if (fp)
++	if (fp) {
++		int err = errno;
++
+ 		fclose(fp);
++		/* Ignore fclose() errors */
++		errno = err;
++	}
+ 
+-	if (ret) {
+-		syslog(LOG_DEBUG, "%s(pid=%d): %s", __func__, pid, strerror(errno));
+-		if (uidp)
+-			*uidp = INVALID_UIDGID;
++	if (!ret) {
++		*idp = id;
++		errno = 0;
++	} else {
++		syslog(LOG_DEBUG, "%s(pid=%d, map=%s, id=%u): %s", __func__, pid, map, *idp,
++		       strerror(errno));
++	}
++
++	return ret;
++}
++
++/*
++ * map_uidgid() - Map (real) UID/GID from init host NS to user NS.
++ * @pid: host NS PID
++ * @uidp: (in) host UID, (out) NS UID
++ * @gidp: (in) host GID, (out) NS GID
++ *
++ * Parse /proc/@pid/{uid,gid}_map files to get NS UID/GID values.
++ * Since @pid is expected to be a host NS PID, this must be called before switching namespaces.
++ *
++ * Note: we can't use /proc/self here because we haven't switched NS yet, so {uid,gid}_map files
++ * would contain host NS values.
++ *
++ * Return: 0 on success, 1 otherwise (errno set).
++ */
++static int map_uidgid(pid_t pid, uid_t *uidp, gid_t *gidp)
++{
++	uid_t orig_uid;
++	gid_t orig_gid;
++	int ret = 1;
++
++	errno = EINVAL;
++	if (!uidp || !gidp)
++		goto out;
++
++	orig_uid = *uidp;
++	orig_gid = *gidp;
+ 
+-		if (gidp)
+-			*gidp = INVALID_UIDGID;
++	ret = map_id(pid, "uid_map", uidp);
++	if (ret) {
++		if (errno == ENODATA)
++			syslog(LOG_ERR, "UID %u not mapped in this namespace (unsupported)",
++			       orig_uid);
++		goto out;
+ 	}
+ 
++	ret = map_id(pid, "gid_map", gidp);
++	if (ret && errno == ENODATA)
++		syslog(LOG_ERR, "GID %u not mapped in this namespace (unsupported)",
++		       orig_gid);
++out:
++	if (ret && errno != ENODATA)
++		syslog(LOG_ERR, "%s: %s", __func__, strerror(errno));
++	else if (!ret)
++		syslog(LOG_DEBUG, "host %u:%u -> NS %u:%u", orig_uid, orig_gid, *uidp, *gidp);
++
+ 	return ret;
+ }
+ 
+@@ -1421,6 +1474,7 @@ int main(const int argc, char *const arg
+ 	const char *oid;
+ 	uid_t uid;
+ 	gid_t gid;
++	struct passwd *pw;
+ 	char *keytab_name = NULL;
+ 	char *env_cachename = NULL;
+ 	krb5_ccache ccache = NULL;
+@@ -1561,39 +1615,60 @@ int main(const int argc, char *const arg
+ 	}
+ 
+ 	/*
+-	 * Change to the process's namespace. This means that things will work
+-	 * acceptably in containers, because we'll be looking at the correct
+-	 * filesystem and have the correct network configuration.
++	 * 'uid' always points to a host UID, so we must get the corresponding host GID.
++	 * It's safe to call getpwuid() here because we're still on host NS, i.e. caller
++	 * application has no control over custom NSS modules.
++	 *
++	 * FIXME: if UID is from another NS, or a subuid, this will fail on mount.
+ 	 */
+-	rc = switch_to_process_ns(arg->pid);
+-	if (rc == -1) {
+-		syslog(LOG_ERR, "unable to switch to process namespace: %s", strerror(errno));
++	errno = 0;
++	pw = getpwuid(uid);
++	if (!pw) {
++		syslog(LOG_ERR, "failed to retrieve GID from UID %u: %s", uid,
++		       strerror(errno ? errno : ENOENT));
+ 		rc = 1;
+ 		goto out;
+ 	}
+ 
+-	if (trim_capabilities(env_probe))
+-		goto out;
++	gid = pw->pw_gid;
+ 
+ 	/*
+ 	 * We can't reasonably do this for root. When mounting a DFS share,
+ 	 * for instance we can end up with creds being overridden, but the env
+ 	 * variable left intact.
++	 *
++	 * Always check this before NS UID mapping.
+ 	 */
+ 	if (uid == 0)
+ 		env_probe = false;
+ 
+ 	/*
+-	 * FIXME: this only works if we haven't switched PID namespaces.
+-	 * If we did, /proc/arg->pid/ might not exist, or worse, point to something else.
++	 * Map host 'uid' and 'gid' to the target user NS.
++	 *
++	 * Any scenario that involves unmapped UIDs or primary GIDs is not supported -- we
++	 * don't have, and can't find, all the info that would be necessary to find a
++	 * UID/GID within all the possible NS combinations.
+ 	 */
+-	rc = get_uidgid(arg->pid, &uid, &gid);
+-	if (rc) {
+-		syslog(LOG_ERR, "get_uidgid (NS): %s", strerror(errno));
++	if (!in_same_user_ns(arg->pid, getpid())) {
++		rc = map_uidgid(arg->pid, &uid, &gid);
++		if (rc)
++			goto out;
++	}
++	/*
++	 * Change to the process's namespace. This means that things will work
++	 * acceptably in containers, because we'll be looking at the correct
++	 * filesystem and have the correct network configuration.
++	 */
++	rc = switch_to_process_ns(arg->pid);
++	if (rc == -1) {
++		syslog(LOG_ERR, "unable to switch to process namespace: %s", strerror(errno));
+ 		rc = 1;
+ 		goto out;
+ 	}
+ 
++	if (trim_capabilities(env_probe))
++		goto out;
++
+ 	rc = setgid(gid);
+ 	if (rc) {
+ 		syslog(LOG_ERR, "setgid: %s", strerror(errno));

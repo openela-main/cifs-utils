@@ -3,7 +3,7 @@
 
 Name:            cifs-utils
 Version:         7.0
-Release:         1%{pre_release}%{?dist}
+Release:         5%{pre_release}%{?dist}
 Summary:         Utilities for mounting and managing CIFS mounts
 
 Group:           System Environment/Daemons
@@ -19,6 +19,12 @@ Requires(preun): /usr/sbin/alternatives
 
 Source0:         https://download.samba.org/pub/linux-cifs/cifs-utils/%{name}-%{version}.tar.bz2
 Patch1:          0001-Use-explicit-usr-bin-python3.patch
+Patch2:          mount.cifs.rst-add-missing-reference-for-sssd.patch
+Patch3:          mount.cifs.rst-update-section-about-xattr-acl-suppor.patch
+Patch4:          docs-update-echo_interval-description.patch
+Patch5:          cifs.upcall-remove-getpwuid-dependency.patch
+Patch6:          cifs.upcall-fix-compiler-warning-with-Wvla.patch
+Patch7:          cifs.upcall-fix-regression-with-krb5-creduid.patch
 
 %description
 The SMB/CIFS protocol is a standard file sharing protocol widely deployed
@@ -54,6 +60,12 @@ provide these credentials to the kernel automatically at login.
 %prep
 %setup -q -n %{name}-%{version}%{pre_release}
 %patch1 -p1
+%patch2 -p1
+%patch3 -p1
+%patch4 -p1
+%patch5 -p1
+%patch6 -p1
+%patch7 -p1
 
 %build
 autoreconf -i
@@ -113,6 +125,23 @@ fi
 %{_mandir}/man8/pam_cifscreds.8.gz
 
 %changelog
+* Tue Jul 7 2026 Paulo Alcantara <paalcant@redhat.com> - 7.0-5
+- resolves: RHEL-192933 - fix krb5 mount regression
+
+* Thu Jun 25 2026 Paulo Alcantara <paalcant@redhat.com> - 7.0-4
+- cifs.upcall: remove getpwuid dependency
+- cifs.upcall: fix compiler warning with -Wvla
+- Resolves: RHEL-185759 - Fix CVE-2026-12505
+
+* Thu Feb 19 2026 Paulo Alcantara <paalcant@redhat.com> - 7.0-3
+- docs: update echo_interval description
+- Resolves: RHEL-80397
+
+* Thu Jun 13 2024 Paulo Alcantara <paalcant@redhat.com> - 7.0-2
+- mount.cifs.rst: add missing reference for sssd
+- mount.cifs.rst: update section about xattr/acl support
+- Resolves: RHEL-41059
+
 * Mon Jan 30 2023 Pavel Filipenský <pfilipen@redhat.com> - 7.0-1
 - Update to cifs-utils-7.0
 - Resolves: rhbz#2163373

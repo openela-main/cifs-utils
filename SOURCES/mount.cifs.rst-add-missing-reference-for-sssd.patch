@@ -1,0 +1,49 @@
+From e7ec0032898d855be144c0cdc9d9e3f78ae01bf2 Mon Sep 17 00:00:00 2001
+From: Paulo Alcantara <pc@manguebit.com>
+Date: Sun, 10 Mar 2024 22:24:24 -0300
+Subject: [PATCH 1/2] mount.cifs.rst: add missing reference for sssd
+
+Reference sssd in mount.cifs(8) as it can be used instead of winbind
+via cifs.idmap utility.  It's also enabled by default in most systems.
+
+Signed-off-by: Paulo Alcantara (Red Hat) <pc@manguebit.com>
+---
+ mount.cifs.rst | 14 +++++++-------
+ 1 file changed, 7 insertions(+), 7 deletions(-)
+
+diff --git a/mount.cifs.rst b/mount.cifs.rst
+index 3becf200e038..64127b23cf17 100644
+--- a/mount.cifs.rst
++++ b/mount.cifs.rst
+@@ -773,10 +773,10 @@ specified in the following Microsoft TechNet document:
+ In order to map SIDs to/from UIDs and GIDs, the following is required:
+ 
+ - a kernel upcall to the ``cifs.idmap`` utility set up via request-key.conf(5)
+-- winbind support configured via nsswitch.conf(5) and smb.conf(5)
++- winbind or sssd support configured via nsswitch.conf(5)
+ 
+-Please refer to the respective manpages of cifs.idmap(8) and
+-winbindd(8) for more information.
++Please refer to the respective manpages of cifs.idmap(8), winbindd(8)
++and sssd(8) for more information.
+ 
+ Security descriptors for a file object can be retrieved and set
+ directly using extended attribute named ``system.cifs_acl``. The
+@@ -792,10 +792,10 @@ Some of the things to consider while using this mount option:
+ - The mapping between a CIFS/NTFS ACL and POSIX file permission bits
+   is imperfect and some ACL information may be lost in the
+   translation.
+-- If either upcall to cifs.idmap is not setup correctly or winbind is
+-  not configured and running, ID mapping will fail. In that case uid
+-  and gid will default to either to those values of the share or to
+-  the values of uid and/or gid mount options if specified.
++- If either upcall to cifs.idmap is not setup correctly or winbind or
++  sssd is not configured and running, ID mapping will fail. In that
++  case uid and gid will default to either to those values of the share
++  or to the values of uid and/or gid mount options if specified.
+ 
+ **********************************
+ ACCESSING FILES WITH BACKUP INTENT
+-- 
+2.44.0
+
