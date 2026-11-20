@@ -3,7 +3,7 @@
 
 Name:            cifs-utils
 Version:         7.0
-Release:         5%{pre_release}%{?dist}
+Release:         7%{pre_release}%{?dist}
 Summary:         Utilities for mounting and managing CIFS mounts
 
 Group:           System Environment/Daemons
@@ -25,6 +25,8 @@ Patch4:          docs-update-echo_interval-description.patch
 Patch5:          cifs.upcall-remove-getpwuid-dependency.patch
 Patch6:          cifs.upcall-fix-compiler-warning-with-Wvla.patch
 Patch7:          cifs.upcall-fix-regression-with-krb5-creduid.patch
+Patch8:          mount.cifs-reject-option-delimiters-in-username-and-.patch
+Patch9:          mount.cifs-validate-username-derived-from-the-passwd.patch
 
 %description
 The SMB/CIFS protocol is a standard file sharing protocol widely deployed
@@ -66,6 +68,8 @@ provide these credentials to the kernel automatically at login.
 %patch5 -p1
 %patch6 -p1
 %patch7 -p1
+%patch8 -p1
+%patch9 -p1
 
 %build
 autoreconf -i
@@ -125,6 +129,11 @@ fi
 %{_mandir}/man8/pam_cifscreds.8.gz
 
 %changelog
+* Wed Oct 14 2026 Paulo Alcantara <paalcant@redhat.com> - 7.0-7
+- Fix local privilege boundary bypass through credential-file
+- Resolves: CVE-2026-104715
+- Resolves: RHEL-276842
+
 * Tue Jul 7 2026 Paulo Alcantara <paalcant@redhat.com> - 7.0-5
 - resolves: RHEL-192933 - fix krb5 mount regression
 
